@@ -8,7 +8,9 @@ function sde_determine_initdt(u0::uType,t::tType,tdir,dtmax,abstol,reltol,intern
   f = prob.f
   g = prob.g
   p = prob.p
-  d₀ = internalnorm(ArrayInterface.aos_to_soa(u0)./(abstol.+internalnorm.(u0,t).*reltol),t)
+  soa_u0 = ArrayInterface.aos_to_soa(u0)
+  den = abstol.+internalnorm.(u0, t).*reltol
+  d₀ = internalnorm(soa_u0./den,t)
   dtmin = nextfloat(integrator.opts.dtmin)
   smalldt = tType(1//10^(6))
   if !isinplace(prob)
