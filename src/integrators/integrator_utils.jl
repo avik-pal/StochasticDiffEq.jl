@@ -144,14 +144,14 @@ end
   elseif integrator.opts.adaptive
     stepsize_controller!(integrator,integrator.alg)
     integrator.isout = integrator.opts.isoutofdomain(integrator.u,integrator.p,ttmp)
-    integrator.accept_step = (!integrator.isout && integrator.EEst <= 1.0) || (integrator.opts.force_dtmin && integrator.dt <= integrator.opts.dtmin)
+    integrator.accept_step = (!integrator.isout && accept_step_controller(integrator, integrator.opts.controller)) || (integrator.opts.force_dtmin && integrator.dt <= integrator.opts.dtmin)
     if integrator.accept_step # Accepted
       step_accept_controller!(integrator,integrator.alg)
       integrator.last_stepfail = false
       integrator.tprev = integrator.t
       if typeof(integrator.t)<:AbstractFloat && !isempty(integrator.opts.tstops)
         tstop = integrator.tdir * first(integrator.opts.tstops)
-        @fastmath abs(ttmp - tstop) < 10eps(integrator.t) ? (integrator.t = tstop) : (integrator.t = ttmp)
+        @fastmath abs(ttmp - tstop) < 100eps(integrator.t) ? (integrator.t = tstop) : (integrator.t = ttmp)
       else
         integrator.t = ttmp
       end
@@ -162,9 +162,9 @@ end
     integrator.tprev = integrator.t
     if typeof(integrator.t)<:AbstractFloat && !isempty(integrator.opts.tstops)
       tstop = integrator.tdir * first(integrator.opts.tstops)
-      # For some reason 10eps(integrator.t) is slow here
+      # For some reason 100eps(integrator.t) is slow here
       # TODO: Allow higher precision but profile
-      @fastmath abs(ttmp - tstop) < 10eps(max(integrator.t,tstop)) ? (integrator.t = tstop) : (integrator.t = ttmp)
+      @fastmath abs(ttmp - tstop) < 100eps(max(integrator.t,tstop)) ? (integrator.t = tstop) : (integrator.t = ttmp)
     else
       integrator.t = ttmp
     end

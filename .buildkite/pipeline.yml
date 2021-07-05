@@ -1,29 +1,57 @@
 steps:
-  - label: "WeakConvergence"
+  - label: "OOPWeakConvergence"
     plugins:
-      - JuliaCI/julia#v0.6:
-          version: "1.5"
-      - JuliaCI/julia-test#v0.3:
+      - JuliaCI/julia#v1:
+          version: "1"
+      - JuliaCI/julia-test#v1:
           coverage: false
     agents:
       queue: "juliacpu"
     env:
-      GROUP: 'WeakConvergence'
+      GROUP: 'OOPWeakConvergence'
     timeout_in_minutes: 240
     # Don't run Buildkite if the commit message includes the text [skip tests]
     if: build.message !~ /\[skip tests\]/
 
-  - label: "WeakAdaptive"
+  - label: "IIPWeakConvergence"
     plugins:
-      - JuliaCI/julia#v0.6:
-          version: "1.5"
-      - JuliaCI/julia-test#v0.3:
+      - JuliaCI/julia#v1:
+          version: "1"
+      - JuliaCI/julia-test#v1:
+          coverage: false
+    agents:
+      queue: "juliacpu"
+    env:
+      GROUP: 'IIPWeakConvergence'
+    timeout_in_minutes: 240
+    # Don't run Buildkite if the commit message includes the text [skip tests]
+    if: build.message !~ /\[skip tests\]/
+
+  - label: "WeakAdaptiveCPU"
+    plugins:
+      - JuliaCI/julia#v1:
+          version: "1"
+      - JuliaCI/julia-test#v1:
+          coverage: false
+    agents:
+      queue: "juliacpu"
+    env:
+      GROUP: 'WeakAdaptiveCPU'
+    timeout_in_minutes: 240
+    # Don't run Buildkite if the commit message includes the text [skip tests]
+    if: build.message !~ /\[skip tests\]/
+
+  - label: "WeakAdaptiveGPU"
+    plugins:
+      - JuliaCI/julia#v1:
+          version: "1"
+      - JuliaCI/julia-test#v1:
           coverage: false
     agents:
       queue: "juliagpu"
       cuda: "*"
     env:
-      GROUP: 'WeakAdaptive'
+      GROUP: 'WeakAdaptiveGPU'
     timeout_in_minutes: 240
     # Don't run Buildkite if the commit message includes the text [skip tests]
     if: build.message !~ /\[skip tests\]/
