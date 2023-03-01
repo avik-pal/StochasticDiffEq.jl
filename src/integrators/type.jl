@@ -42,5 +42,13 @@ mutable struct SDEIntegrator{algType,IIP,uType,uEltype,tType,tdirType,P2,eigenTy
   q::tTypeNoUnits
   qold::tTypeNoUnits
   q11::tTypeNoUnits
-  destats::DiffEqBase.DEStats
+  stats::DiffEqBase.Stats
+end
+
+Base.@propagate_inbounds function Base.getproperty(integrator::SDEIntegrator, s::Symbol)
+  if s === :destats
+    Base.depwarn("`integrator.destats` is deprecated. Use `integrator.stats` instead.", "integrator.destats")
+    return getfield(integrator, :stats)
+  end
+  return getfield(integrator, s)
 end
