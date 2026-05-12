@@ -1,42 +1,178 @@
 ## SciMLBase Trait Definitions
 
-SciMLBase.isautodifferentiable(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm,StochasticDiffEqJumpAlgorithm}) = true
-SciMLBase.allows_arbitrary_number_types(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm,StochasticDiffEqJumpAlgorithm}) = true
-SciMLBase.allowscomplex(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm,StochasticDiffEqJumpAlgorithm}) = true
+SciMLBase.allows_late_binding_tstops(::StochasticDiffEqAlgorithm) = true
+SciMLBase.allows_late_binding_tstops(::StochasticDiffEqRODEAlgorithm) = true
+
+SciMLBase.supports_solve_rng(
+    ::SciMLBase.AbstractSDEProblem,
+    ::StochasticDiffEqAlgorithm,
+) = true
+
+SciMLBase.supports_solve_rng(
+    ::SciMLBase.AbstractRODEProblem,
+    ::StochasticDiffEqRODEAlgorithm,
+) = true
+
+function SciMLBase.isautodifferentiable(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+            StochasticDiffEqJumpAlgorithm,
+        }
+    )
+    return true
+end
+function SciMLBase.allows_arbitrary_number_types(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+            StochasticDiffEqJumpAlgorithm,
+        }
+    )
+    return true
+end
+function SciMLBase.allowscomplex(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+            StochasticDiffEqJumpAlgorithm,
+        }
+    )
+    return true
+end
 SciMLBase.isdiscrete(alg::StochasticDiffEqJumpAlgorithm) = true
 
-SciMLBase.forwarddiffs_model(alg::Union{StochasticDiffEqNewtonAlgorithm,
-    StochasticDiffEqNewtonAdaptiveAlgorithm,StochasticDiffEqJumpNewtonAdaptiveAlgorithm,
-    StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm}) = OrdinaryDiffEq.alg_autodiff(alg)
+function SciMLBase.forwarddiffs_model(
+        alg::Union{
+            StochasticDiffEqNewtonAlgorithm,
+            StochasticDiffEqNewtonAdaptiveAlgorithm, StochasticDiffEqJumpNewtonAdaptiveAlgorithm,
+            StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm,
+        }
+    )
+    return OrdinaryDiffEqCore.alg_autodiff(alg) isa ADTypes.AutoForwardDiff
+end
 
+# Required for initialization, because ODECore._initialize_dae! calls it during
+# OverrideInit
+function OrdinaryDiffEqCore.has_autodiff(
+        ::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+            StochasticDiffEqJumpAlgorithm,
+        }
+    )
+    return false
+end
+for T in [
+        StochasticDiffEqNewtonAlgorithm, StochasticDiffEqNewtonAdaptiveAlgorithm,
+        StochasticDiffEqJumpNewtonAdaptiveAlgorithm,
+        StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm,
+    ]
+    @eval OrdinaryDiffEqCore.has_autodiff(::$T) = true
+end
 
-isadaptive(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = false
-isadaptive(alg::Union{StochasticDiffEqAdaptiveAlgorithm,StochasticDiffEqRODEAdaptiveAlgorithm,StochasticDiffEqJumpAdaptiveAlgorithm,StochasticDiffEqJumpDiffusionAdaptiveAlgorithm}) = true
-isadaptive(alg::Union{StochasticDiffEqCompositeAlgorithm,StochasticDiffEqRODECompositeAlgorithm}) = all(isadaptive.(alg.algs))
-isadaptive(prob, alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = isadaptive(alg)
+_alg_autodiff(::StochasticDiffEqNewtonAlgorithm{T, AD}) where {T, AD} = Val{AD}()
+_alg_autodiff(::StochasticDiffEqNewtonAdaptiveAlgorithm{T, AD}) where {T, AD} = Val{AD}()
+function _alg_autodiff(::StochasticDiffEqJumpNewtonAdaptiveAlgorithm{T, AD}) where {T, AD}
+    return Val{AD}()
+end
+function _alg_autodiff(
+        ::StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm{
+            T, AD,
+        }
+    ) where {T, AD}
+    return Val{AD}()
+end
+_alg_autodiff(alg::StochasticCompositeAlgorithm) = _alg_autodiff(alg.algs[end])
+
+function OrdinaryDiffEqCore.alg_autodiff(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+        }
+    )
+    ad = _alg_autodiff(alg)
+    if ad == Val(false)
+        return ADTypes.AutoFiniteDiff()
+    elseif ad == Val(true)
+        return ADTypes.AutoForwardDiff()
+    else
+        return SciMLBase._unwrap_val(ad)
+    end
+end
+
+isadaptive(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}) = false
+function isadaptive(
+        alg::Union{
+            StochasticDiffEqAdaptiveAlgorithm, StochasticDiffEqRODEAdaptiveAlgorithm,
+            StochasticDiffEqJumpAdaptiveAlgorithm,
+            StochasticDiffEqJumpDiffusionAdaptiveAlgorithm,
+        }
+    )
+    return true
+end
+function isadaptive(
+        alg::Union{
+            StochasticDiffEqCompositeAlgorithm, StochasticDiffEqRODECompositeAlgorithm,
+        }
+    )
+    return all(isadaptive.(alg.algs))
+end
+function isadaptive(
+        prob, alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+        }
+    )
+    return isadaptive(alg)
+end
 isadaptive(prob::JumpProblem, alg::ImplicitEM) = false
 
 ## StochasticDiffEq Internal Traits
 
-qmax_default(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = isadaptive(alg) ? 9 // 8 : 0
-qmin_default(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = isadaptive(alg) ? 1 // 5 : 0
+function qmax_default(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm})
+    return isadaptive(alg) ? 9 // 8 : 0
+end
+function qmin_default(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm})
+    return isadaptive(alg) ? 1 // 5 : 0
+end
 
 delta_default(alg) = 1 // 1
 delta_default(alg::SRIW1) = 1 // 6
 
-ispredictive(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = false
-isstandard(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = false
-qsteady_min_default(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = 1
-qsteady_max_default(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = 1
-
-# special cases in stepsize_controllers.jl
-function default_controller(alg::Union{TauLeaping,CaoTauLeaping}, args...)
-    DummyController()
+function OrdinaryDiffEqCore.gamma_default(
+        alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}
+    )
+    return isadaptive(alg) ? 9 // 10 : 0
 end
 
-# For whether an algorithm uses a priori dt estimates or utilizes an error estimate
-isaposteriori(alg) = false
-isaposteriori(alg::CaoTauLeaping) = true
+ispredictive(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}) = false
+isstandard(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}) = false
+function qsteady_min_default(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+        }
+    )
+    return 1
+end
+function qsteady_max_default(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+        }
+    )
+    return 1
+end
+
+# special cases in stepsize_controllers.jl
+function default_controller(
+        alg::Union{TauLeaping, CaoTauLeaping, ThetaTrapezoidalTauLeaping}, args...
+    )
+    return DummyController()
+end
+
+# Extend ODE's isaposteriori for SDE algorithms.
+# CaoTauLeaping always accepts (a posteriori dt), others use error estimates.
+OrdinaryDiffEqCore.isaposteriori(alg::CaoTauLeaping) = true
+
+# SDE algorithms never extrapolate (no uprev2 storage).
+OrdinaryDiffEqCore.alg_extrapolates(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}) = false
+
+# SDE algorithms are never FSAL (update_fsal! is a no-op for SDE).
+OrdinaryDiffEqCore.isfsal(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}) = false
 
 alg_order(alg::EM) = 1 // 2
 alg_order(alg::LambaEM) = 1 // 2
@@ -101,6 +237,7 @@ alg_order(alg::RDI1WM) = 1 // 1
 alg_order(alg::RDI2WM) = 1 // 1
 alg_order(alg::RDI3WM) = 1 // 1
 alg_order(alg::RDI4WM) = 1 // 1
+alg_order(alg::W2Ito1) = 1 // 1
 
 alg_order(alg::RS1) = 1 // 1
 alg_order(alg::RS2) = 1 // 1
@@ -117,45 +254,104 @@ alg_order(alg::SMEA) = 1 // 1
 alg_order(alg::SIEB) = 1 // 1
 alg_order(alg::SMEB) = 1 // 1
 
-
 alg_order(alg::TauLeaping) = 1 // 1
 alg_order(alg::CaoTauLeaping) = 1 // 1
+alg_order(alg::ImplicitTauLeaping) = 1 // 1  # Weak first order (backward Euler)
+alg_order(alg::ThetaTrapezoidalTauLeaping) = 2 // 1  # Weak second order
 
 alg_order(alg::BAOAB) = 1 // 1
 
 alg_order(alg::SKenCarp) = 2 // 1
-alg_order(alg::Union{StochasticDiffEqCompositeAlgorithm,StochasticDiffEqRODECompositeAlgorithm}) = maximum(alg_order.(alg.algs))
+alg_order(alg::IRI1) = 1 // 1  # Strong order, weak order is 2
+function alg_order(
+        alg::Union{
+            StochasticDiffEqCompositeAlgorithm, StochasticDiffEqRODECompositeAlgorithm,
+        }
+    )
+    return maximum(alg_order.(alg.algs))
+end
 get_current_alg_order(alg::StochasticDiffEqAlgorithm, cache) = alg_order(alg)
-get_current_alg_order(alg::Union{StochasticDiffEqCompositeAlgorithm,StochasticDiffEqRODECompositeAlgorithm}, cache) = alg_order(alg.algs[cache.current])
+function get_current_alg_order(
+        alg::Union{
+            StochasticDiffEqCompositeAlgorithm, StochasticDiffEqRODECompositeAlgorithm,
+        },
+        cache
+    )
+    return alg_order(alg.algs[cache.current])
+end
 
-beta2_default(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = isadaptive(alg) ? 2 // (5alg_order(alg)) : 0
-beta1_default(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}, beta2) = isadaptive(alg) ? 7 // (10alg_order(alg)) : 0
+function beta2_default(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm})
+    return isadaptive(alg) ? 2 // (5alg_order(alg)) : 0
+end
+function beta1_default(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}, beta2)
+    return isadaptive(alg) ? 7 // (10alg_order(alg)) : 0
+end
 
-isdtchangeable(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = true
+isdtchangeable(alg::Union{StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm}) = true
 
-alg_interpretation(alg::StochasticDiffEqAlgorithm) = :Ito
-alg_interpretation(alg::EulerHeun) = :Stratonovich
-alg_interpretation(alg::LambaEulerHeun) = :Stratonovich
-alg_interpretation(alg::KomBurSROCK2) = :Stratonovich
-alg_interpretation(alg::RKMil{interpretation}) where {interpretation} = interpretation
-alg_interpretation(alg::SROCK1{interpretation,E}) where {interpretation,E} = interpretation
-alg_interpretation(alg::RKMilCommute) = alg.interpretation
-alg_interpretation(alg::RKMilGeneral) = alg.interpretation
-alg_interpretation(alg::ImplicitRKMil{CS,AD,F,P,FDT,ST,CJ,N,T2,Controller,interpretation}) where {CS,AD,F,P,FDT,ST,CJ,N,T2,Controller,interpretation} = interpretation
+function SciMLBase.alg_interpretation(alg::StochasticDiffEqAlgorithm)
+    return SciMLBase.AlgorithmInterpretation.Ito
+end
+function SciMLBase.alg_interpretation(alg::EulerHeun)
+    return SciMLBase.AlgorithmInterpretation.Stratonovich
+end
+function SciMLBase.alg_interpretation(alg::LambaEulerHeun)
+    return SciMLBase.AlgorithmInterpretation.Stratonovich
+end
+function SciMLBase.alg_interpretation(alg::KomBurSROCK2)
+    return SciMLBase.AlgorithmInterpretation.Stratonovich
+end
+function SciMLBase.alg_interpretation(alg::RKMil{interpretation}) where {interpretation}
+    return interpretation
+end
+function SciMLBase.alg_interpretation(
+        alg::SROCK1{
+            interpretation, E,
+        }
+    ) where {interpretation, E}
+    return interpretation
+end
+SciMLBase.alg_interpretation(alg::RKMilCommute) = alg.interpretation
+SciMLBase.alg_interpretation(alg::RKMilGeneral) = alg.interpretation
+function SciMLBase.alg_interpretation(
+        alg::ImplicitRKMil{
+            CS,
+            AD,
+            F,
+            P,
+            FDT,
+            ST,
+            CJ,
+            N,
+            T2,
+            Controller,
+            interpretation,
+        }
+    ) where {
+        CS, AD, F, P, FDT, ST, CJ, N, T2, Controller, interpretation,
+    }
+    return interpretation
+end
 
-alg_interpretation(alg::RS1) = :Stratonovich
-alg_interpretation(alg::RS2) = :Stratonovich
+SciMLBase.alg_interpretation(alg::RS1) = SciMLBase.AlgorithmInterpretation.Stratonovich
+SciMLBase.alg_interpretation(alg::RS2) = SciMLBase.AlgorithmInterpretation.Stratonovich
 
-alg_interpretation(alg::NON) = :Stratonovich
-alg_interpretation(alg::COM) = :Stratonovich
-alg_interpretation(alg::NON2) = :Stratonovich
+SciMLBase.alg_interpretation(alg::NON) = SciMLBase.AlgorithmInterpretation.Stratonovich
+SciMLBase.alg_interpretation(alg::COM) = SciMLBase.AlgorithmInterpretation.Stratonovich
+SciMLBase.alg_interpretation(alg::NON2) = SciMLBase.AlgorithmInterpretation.Stratonovich
 
-alg_compatible(prob, alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = true
+function alg_compatible(
+        prob, alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+        }
+    )
+    return true
+end
 alg_compatible(prob, alg::StochasticDiffEqAlgorithm) = false
 
 function alg_compatible(prob::JumpProblem, alg::StochasticDiffEqAlgorithm)
-    alg_compatible(prob.prob, alg) && prob.regular_jump === nothing &&
-        typeof(prob.prob) <: DiffEqBase.AbstractSDEProblem
+    return alg_compatible(prob.prob, alg) && prob.regular_jump === nothing &&
+        prob.prob isa DiffEqBase.AbstractSDEProblem
 end
 alg_compatible(prob::JumpProblem, alg::EM) = alg_compatible(prob.prob, alg)
 alg_compatible(prob::JumpProblem, alg::ImplicitEM) = alg_compatible(prob.prob, alg)
@@ -181,6 +377,7 @@ alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RDI1WM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RDI2WM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RDI3WM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RDI4WM) = true
+alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::W2Ito1) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RS1) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RS2) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::PL1WM) = true
@@ -193,6 +390,7 @@ alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::SMEA) = is_diagonal_noi
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::SIEB) = is_diagonal_noise(prob)
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::SMEB) = is_diagonal_noise(prob)
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::SKenCarp) = true
+alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::IRI1) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::EM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::LambaEM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::WangLi3SMil_A) = true
@@ -218,20 +416,44 @@ alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::ISSEM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::ISSEulerHeun) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::SimplifiedEM) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RKMil) = is_diagonal_noise(prob)
-alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::ImplicitRKMil) = is_diagonal_noise(prob)
+function alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::ImplicitRKMil)
+    return is_diagonal_noise(prob)
+end
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RKMilCommute) = true # No good check for commutative noise
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::RKMilGeneral) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::IIF1M) = true
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::IIF2M) = true
-alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::Union{StochasticDiffEqCompositeAlgorithm,StochasticDiffEqRODECompositeAlgorithm}) = max((alg_compatible(prob, a) for a in alg.algs)...)
+function alg_compatible(
+        prob::DiffEqBase.AbstractSDEProblem,
+        alg::Union{
+            StochasticDiffEqCompositeAlgorithm, StochasticDiffEqRODECompositeAlgorithm,
+        }
+    )
+    return max((alg_compatible(prob, a) for a in alg.algs)...)
+end
 alg_compatible(prob::DiffEqBase.AbstractSDEProblem, alg::BAOAB) = is_diagonal_noise(prob)
 
-function alg_compatible(prob::JumpProblem, alg::Union{StochasticDiffEqJumpAdaptiveAlgorithm,StochasticDiffEqJumpAlgorithm})
-    prob.prob isa DiscreteProblem
+function alg_compatible(
+        prob::JumpProblem,
+        alg::Union{StochasticDiffEqJumpAdaptiveAlgorithm, StochasticDiffEqJumpAlgorithm}
+    )
+    return prob.prob isa DiscreteProblem
 end
 
-alg_needs_extra_process(alg::Union{StochasticDiffEqAlgorithm,StochasticDiffEqRODEAlgorithm}) = false
-alg_needs_extra_process(alg::Union{StochasticDiffEqCompositeAlgorithm,StochasticDiffEqRODECompositeAlgorithm}) = max((alg_needs_extra_process(a) for a in alg.algs)...)
+function alg_needs_extra_process(
+        alg::Union{
+            StochasticDiffEqAlgorithm, StochasticDiffEqRODEAlgorithm,
+        }
+    )
+    return false
+end
+function alg_needs_extra_process(
+        alg::Union{
+            StochasticDiffEqCompositeAlgorithm, StochasticDiffEqRODECompositeAlgorithm,
+        }
+    )
+    return max((alg_needs_extra_process(a) for a in alg.algs)...)
+end
 alg_needs_extra_process(alg::RKMilGeneral) = true
 alg_needs_extra_process(alg::SRI) = true
 alg_needs_extra_process(alg::SRIW1) = true
@@ -245,6 +467,7 @@ alg_needs_extra_process(alg::SRA3) = true
 alg_needs_extra_process(alg::SOSRA) = true
 alg_needs_extra_process(alg::SOSRA2) = true
 alg_needs_extra_process(alg::SKenCarp) = true
+alg_needs_extra_process(alg::IRI1) = true
 alg_needs_extra_process(alg::DRI1) = true
 alg_needs_extra_process(alg::RI1) = true
 alg_needs_extra_process(alg::RI3) = true
@@ -254,44 +477,115 @@ alg_needs_extra_process(alg::RDI1WM) = true
 alg_needs_extra_process(alg::RDI2WM) = true
 alg_needs_extra_process(alg::RDI3WM) = true
 alg_needs_extra_process(alg::RDI4WM) = true
+alg_needs_extra_process(alg::W2Ito1) = true
 alg_needs_extra_process(alg::RS1) = true
 alg_needs_extra_process(alg::RS2) = true
 alg_needs_extra_process(alg::PL1WM) = true
 alg_needs_extra_process(alg::NON) = true
 alg_needs_extra_process(alg::NON2) = true
 
-OrdinaryDiffEq._alg_autodiff(alg::StochasticDiffEqNewtonAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val{AD}()
-OrdinaryDiffEq._alg_autodiff(alg::StochasticDiffEqNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val{AD}()
-OrdinaryDiffEq._alg_autodiff(alg::StochasticDiffEqJumpNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val{AD}()
-OrdinaryDiffEq._alg_autodiff(alg::StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val{AD}()
-
-OrdinaryDiffEq.get_current_alg_autodiff(alg::StochasticDiffEqCompositeAlgorithm, cache) = OrdinaryDiffEq.alg_autodiff(alg.algs[cache.current])
-
-OrdinaryDiffEq.get_chunksize(alg::StochasticDiffEqNewtonAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val(CS)
-OrdinaryDiffEq.get_chunksize(alg::StochasticDiffEqNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val(CS)
-OrdinaryDiffEq.get_chunksize(alg::StochasticDiffEqJumpNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val(CS)
-OrdinaryDiffEq.get_chunksize(alg::StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller}) where {CS,AD,FDT,ST,CJ,Controller} = Val(CS)
-
-@static if isdefined(OrdinaryDiffEq, :standardtag)
-    OrdinaryDiffEq.standardtag(alg::Union{StochasticDiffEqNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller},
-        StochasticDiffEqNewtonAlgorithm{CS,AD,FDT,ST,CJ,Controller}}
-    ) where {CS,AD,FDT,ST,CJ,Controller} = ST
+function OrdinaryDiffEqDifferentiation._alg_autodiff(
+        alg::StochasticDiffEqNewtonAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val{AD}()
+end
+function OrdinaryDiffEqDifferentiation._alg_autodiff(
+        alg::StochasticDiffEqNewtonAdaptiveAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val{AD}()
+end
+function OrdinaryDiffEqDifferentiation._alg_autodiff(
+        alg::StochasticDiffEqJumpNewtonAdaptiveAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val{AD}()
+end
+function OrdinaryDiffEqDifferentiation._alg_autodiff(
+        alg::StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val{AD}()
 end
 
-@static if isdefined(OrdinaryDiffEq, :alg_difftype)
-    OrdinaryDiffEq.alg_difftype(alg::Union{StochasticDiffEqNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller},
-        StochasticDiffEqNewtonAlgorithm{CS,AD,FDT,ST,CJ,Controller}}) where {CS,AD,FDT,ST,CJ,Controller} = FDT
+function OrdinaryDiffEqCore.get_current_alg_autodiff(alg::StochasticDiffEqCompositeAlgorithm, cache)
+    return OrdinaryDiffEqCore.alg_autodiff(alg.algs[cache.current])
 end
 
-@static if isdefined(OrdinaryDiffEq, :concrete_jac)
-    OrdinaryDiffEq.concrete_jac(alg::Union{StochasticDiffEqNewtonAdaptiveAlgorithm{CS,AD,FDT,ST,CJ,Controller},
-        StochasticDiffEqNewtonAlgorithm{CS,AD,FDT,ST,CJ,Controller}}) where {CS,AD,FDT,ST,CJ,Controller} = CJ
+function OrdinaryDiffEqCore.get_chunksize(
+        alg::StochasticDiffEqNewtonAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val(CS)
+end
+function OrdinaryDiffEqCore.get_chunksize(
+        alg::StochasticDiffEqNewtonAdaptiveAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val(CS)
+end
+function OrdinaryDiffEqCore.get_chunksize(
+        alg::StochasticDiffEqJumpNewtonAdaptiveAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val(CS)
+end
+function OrdinaryDiffEqCore.get_chunksize(
+        alg::StochasticDiffEqJumpNewtonDiffusionAdaptiveAlgorithm{
+            CS, AD, FDT, ST, CJ, Controller,
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller}
+    return Val(CS)
+end
+
+@static if isdefined(OrdinaryDiffEqCore, :standardtag)
+    OrdinaryDiffEqCore.standardtag(
+        alg::Union{
+            StochasticDiffEqNewtonAdaptiveAlgorithm{CS, AD, FDT, ST, CJ, Controller},
+            StochasticDiffEqNewtonAlgorithm{CS, AD, FDT, ST, CJ, Controller},
+        }
+    ) where {CS, AD, FDT, ST, CJ, Controller} = ST
+end
+
+@static if isdefined(OrdinaryDiffEqCore, :alg_difftype)
+    OrdinaryDiffEqCore.alg_difftype(
+        alg::Union{
+            StochasticDiffEqNewtonAdaptiveAlgorithm{CS, AD, FDT, ST, CJ, Controller},
+            StochasticDiffEqNewtonAlgorithm{CS, AD, FDT, ST, CJ, Controller},
+        }
+    ) where {
+        CS, AD, FDT, ST, CJ, Controller,
+    } = FDT
+end
+
+@static if isdefined(OrdinaryDiffEqCore, :concrete_jac)
+    OrdinaryDiffEqCore.concrete_jac(
+        alg::Union{
+            StochasticDiffEqNewtonAdaptiveAlgorithm{CS, AD, FDT, ST, CJ, Controller},
+            StochasticDiffEqNewtonAlgorithm{CS, AD, FDT, ST, CJ, Controller},
+        }
+    ) where {
+        CS, AD, FDT, ST, CJ, Controller,
+    } = CJ
 end
 
 alg_mass_matrix_compatible(alg::StochasticDiffEqAlgorithm) = false
+alg_mass_matrix_compatible(alg::StochasticDiffEqRODEAlgorithm) = false
 alg_can_repeat_jac(alg::StochasticDiffEqAlgorithm) = true
 
-function alg_mass_matrix_compatible(alg::Union{StochasticDiffEqNewtonAlgorithm,StochasticDiffEqNewtonAdaptiveAlgorithm})
+function alg_mass_matrix_compatible(
+        alg::Union{
+            StochasticDiffEqNewtonAlgorithm, StochasticDiffEqNewtonAdaptiveAlgorithm,
+        }
+    )
     if alg.symplectic
         return true
     elseif alg.theta == 1
@@ -302,20 +596,19 @@ function alg_mass_matrix_compatible(alg::Union{StochasticDiffEqNewtonAlgorithm,S
 end
 
 is_split_step(::StochasticDiffEqAlgorithm) = false
-is_split_step(::EM{split}) = split
-is_split_step(::LambaEM{split}) = split
+is_split_step(::EM{split}) where {split} = split
+is_split_step(::LambaEM{split}) where {split} = split
 
 alg_stability_size(alg::SOSRI2) = 10.6
 alg_stability_size(alg::SOSRA2) = 5.3
 
-is_composite(alg) = false
-is_composite(alg::StochasticDiffEqCompositeAlgorithm) = true
-is_composite(alg::StochasticDiffEqRODECompositeAlgorithm) = true
+# is_composite_algorithm trait is defined in OrdinaryDiffEqCore and extended in
+# integrator_utils.jl for SDE composite algorithm types.
 function unwrap_alg(integrator, is_nlsolve)
     alg = integrator.alg
-    if !is_composite(alg)
+    if !is_composite_algorithm(alg)
         return alg
-    elseif typeof(alg.choice_function) <: AutoSwitchCache
+    elseif alg.choice_function isa AutoSwitchCache
         num = is_nlsolve ? 2 : 1
         if num == 1
             return alg.algs[1]
@@ -335,32 +628,9 @@ function unwrap_alg(integrator, is_nlsolve)
     end
 end
 
-issplit(::StochasticDiffEqAlgorithm) = false
 issplit(::SplitSDEAlgorithms) = true
 
-function OrdinaryDiffEq.unwrap_alg(integrator::SDEIntegrator, is_stiff)
-    alg = integrator.alg
-    if !is_composite(alg)
-        return alg
-    elseif typeof(alg.choice_function) <: AutoSwitchCache
-        num = is_stiff ? 2 : 1
-        if num == 1
-            return alg.algs[1]
-        elseif num == 2
-            return alg.algs[2]
-        else
-            return alg.algs[num]
-        end
-    else
-        if integrator.cache.current == 1
-            return alg.algs[1]
-        elseif integrator.cache.current == 2
-            return alg.algs[2]
-        else
-            return alg.algs[integrator.cache.current]
-        end
-    end
-end
-
 alg_control_rate(::StochasticDiffEqAlgorithm) = false
+alg_control_rate(::StochasticDiffEqRODEAlgorithm) = false
 alg_control_rate(::TauLeaping) = true
+alg_control_rate(::ThetaTrapezoidalTauLeaping) = true  # We manage rates manually
